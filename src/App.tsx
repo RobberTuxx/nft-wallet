@@ -1,0 +1,145 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import {
+  useWalletConnect,
+  withWalletConnect
+} from "@walletconnect/react-native-dapp";
+import React from "react";
+import {
+  Button,
+  FlatList,
+  LogBox,
+  Platform,
+  SafeAreaView,
+  StatusBar,
+  Text,
+  View
+} from "react-native";
+import { MMKV } from 'react-native-mmkv'
+import {
+  ViroARSceneNavigator,
+} from 'react-viro';
+
+import web3 from "web3"
+import { expo } from "../app.json";
+
+import { NftItem } from "./components/NftItem";
+import { NftSceneAR } from "./components/NftSceneAR";
+import { fetchNfts } from "./services/fetchNfts";
+
+LogBox.ignoreAllLogs()
+
+const storage = new MMKV()
+
+function App(): JSX.Element {
+  
+  const jsonAccounts = storage.getString('accounts')
+  const accountsObject = jsonAccounts ? JSON.parse(jsonAccounts) : []
+  
+  const connector = useWalletConnect();
+
+  const [accounts, setAccounts] = React.useState(accountsObject);
+  const [message, setMessage] = React.useState<string>("");
+  const [nfts, setNfts] = React.useState([]);
+  const [uri, setUri] = React.useState();
+
+  const connectWallet = React.useCallback(() => {
+    console.log({connector})
+    return connector.connect();
+  }, [connector]);
+
+  const killSession = React.useCallback(() => {
+    setNfts([])
+    setAccounts([])
+    return connector.killSession();
+  }, [connector]);
+
+  async function loadNfts(account) {
+    setMessage('Loading...')
+    const nftList = await fetchNfts(account)
+    setNfts(nftList)
+    setMessage(null)
+  }
+
+  function openCamera(uri) {
+    setUri(uri)
+  }
+
+  function closeCamera() {
+    setUri(null)
+  }
+
+  React.useEffect(() => {
+    if (connector?.accounts?.length > 0) {
+      console.log({connector})
+      const message ="hola"
+      const prueba = web3.utils.soliditySha3(("\x19Ethereum Signed Message:\n" + message.length + message))
+      console.log({prueba})
+      connector.signPersonalMessage(["holaaaaa"]).then(value => {
+        console.log({value})})
+
+      setAccounts(connector.accounts)
+      loadNfts(connector.accounts[0]);
+    }
+  }, [connector]);
+
+  React.useEffect(() => {
+    if (accounts.length > 0 && nfts.length === 0) {
+      loadNfts(accounts[0]);
+    }
+  }, [accounts, nfts]);
+
+  React.useEffect(() => {
+    storage.set('accounts', JSON.stringify(accounts))
+  }, [accounts])
+
+  if (uri) {
+    return (
+      <View style={{ flex: 1 }}>
+        <ViroARSceneNavigator
+          style={{ flex: 1 }}
+          autofocus={true}
+          initialScene={{
+            scene: () => <NftSceneAR uri={uri} />
+          }}
+        />
+        <SafeAreaView>
+          <Button title='Close Camera' onPress={closeCamera} />
+        </SafeAreaView>
+      </View>
+
+    )
+  }
+
+  return (
+    <SafeAreaView style={{ alignItems: "center", flex: 1, justifyContent: "center" }}>
+      <StatusBar barStyle='dark-content' />
+      <Text>{message}</Text>
+      {
+        !connector.connected && accounts.length === 0 && (
+          <Button title="Connect a Wallet" onPress={connectWallet} />
+        )
+      }
+      <FlatList
+        style={{ width: '100%' }}
+        data={nfts}
+        renderItem={({ item }) => <NftItem nft={item} openCamera={openCamera} />}
+      />
+      {
+        !!connector.connected || accounts.length > 0 && (
+          <Button title="Kill Session" onPress={killSession} />
+        )
+      }
+    </SafeAreaView >
+  );
+}
+
+const { scheme } = expo;
+
+export default withWalletConnect(App, {
+  redirectUrl: Platform.OS === "web" ? window.location.origin : `${scheme}://`,
+  storageOptions: {
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore
+    asyncStorage: AsyncStorage
+  }
+});
